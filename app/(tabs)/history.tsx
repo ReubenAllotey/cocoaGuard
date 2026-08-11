@@ -16,6 +16,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import BottomNav, { TabKey } from "@/components/BottomNav";
 import { colors, radius, spacing } from "@/constants/theme";
 import { useScanHistory } from "@/contexts/ScanHistoryContext";
+import { formatConfidence } from "@/utils/confidence";
 import { buildScanShareMessage } from "@/utils/scanSharing";
 
 function getGroupLabel(date: Date) {
@@ -182,7 +183,7 @@ export default function HistoryScreen() {
                               </View>
                             </View>
                             <Text style={styles.rowMeta} numberOfLines={1}>
-                              {scan.confidence}% confidence - {scan.scientificName}
+                              {formatConfidence(scan.confidence)} confidence - {scan.scientificName}
                             </Text>
                           </View>
                         </TouchableOpacity>

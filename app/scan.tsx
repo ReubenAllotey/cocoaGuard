@@ -13,41 +13,29 @@ import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import LeafIcon from "@/components/ui/LeafIcon";
 import { colors, radius, spacing } from "@/constants/theme";
-import { usePendingScan } from "@/contexts/PendingScanContext";
-import type { ScanSubject } from "@/services/scanAnalysis";
 
 type Subject = "leaf" | "pod";
 type CaptureSource = "camera" | "gallery";
 
 export default function ScanScreen() {
   const router = useRouter();
-  const { setPendingScan } = usePendingScan();
   const [permission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
 
   const [subject, setSubject] = useState<Subject>("leaf");
   const [facing] = useState<CameraType>("back");
   const [torchOn, setTorchOn] = useState(false);
-  const [capturedPhoto, setCapturedPhoto] = useState<{
-    uri: string;
-    base64: string;
-    mimeType: string;
-  } | null>(null);
+  const [capturedPhoto, setCapturedPhoto] = useState<{ uri: string } | null>(null);
   const [captureSource, setCaptureSource] = useState<CaptureSource>("camera");
 
   const handleCapture = async () => {
     if (!cameraRef.current) return;
     const photo = await cameraRef.current.takePictureAsync({
       quality: 0.85,
-      base64: true,
     });
-    if (photo?.uri && photo.base64) {
+    if (photo?.uri) {
       setCaptureSource("camera");
-      setCapturedPhoto({
-        uri: photo.uri,
-        base64: photo.base64,
-        mimeType: photo.mimeType ?? "image/jpeg",
-      });
+      setCapturedPhoto({ uri: photo.uri });
     }
   };
 
@@ -55,15 +43,10 @@ export default function ScanScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.85,
-      base64: true,
     });
-    if (!result.canceled && result.assets?.[0]?.uri && result.assets[0].base64) {
+    if (!result.canceled && result.assets?.[0]?.uri) {
       setCaptureSource("gallery");
-      setCapturedPhoto({
-        uri: result.assets[0].uri,
-        base64: result.assets[0].base64,
-        mimeType: result.assets[0].mimeType ?? "image/jpeg",
-      });
+      setCapturedPhoto({ uri: result.assets[0].uri });
     }
   };
 
@@ -75,12 +58,14 @@ export default function ScanScreen() {
   const handleUsePhoto = () => {
     if (!capturedPhoto) return;
 
-    setPendingScan({
-      ...capturedPhoto,
-      subject: subject as ScanSubject,
-      source: captureSource,
+    router.push({
+      pathname: "/analyzing",
+      params: {
+        imageUri: capturedPhoto.uri,
+        source: captureSource,
+        subject,
+      },
     });
-    router.push("/analyzing");
   };
 
   useEffect(() => {

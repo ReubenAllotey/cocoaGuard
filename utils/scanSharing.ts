@@ -1,4 +1,5 @@
 import type { ScanRecord } from "@/contexts/ScanHistoryContext";
+import { formatConfidence } from "@/utils/confidence";
 
 export function buildScanShareMessage(scan: ScanRecord) {
   const treatmentSteps = scan.treatmentSteps
@@ -8,11 +9,11 @@ export function buildScanShareMessage(scan: ScanRecord) {
   return [
     `CocoaGuard scan result: ${scan.diseaseName}`,
     `Scientific name: ${scan.scientificName}`,
-    `Confidence: ${scan.confidence}%`,
+    `Confidence: ${formatConfidence(scan.confidence)}`,
     `Stage: ${scan.stageLabel}`,
     `Recommendation: ${scan.recommendation}`,
     `Note: ${scan.warning}`,
-    "Treatment steps:",
+    treatmentSteps ? "Treatment steps:" : "",
     treatmentSteps,
   ]
     .filter(Boolean)

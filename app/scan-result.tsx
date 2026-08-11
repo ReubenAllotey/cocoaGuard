@@ -15,18 +15,25 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import LeafIcon from "@/components/ui/LeafIcon";
 import { colors, radius, spacing } from "@/constants/theme";
 import { useScanHistory, type ScanRecord } from "@/contexts/ScanHistoryContext";
+import { buildPlantScanRecord, type CocoaLabel } from "@/services/plantDetection";
 import { formatRelativeTime } from "@/utils/formatRelativeTime";
+import { formatConfidence, normalizeConfidence } from "@/utils/confidence";
 import { buildScanShareMessage } from "@/utils/scanSharing";
+
+type ScanResultRecord = ScanRecord & {
+  classIndex?: number;
+  probabilities?: number[];
+};
 
 function getSingleParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function parseScanData(raw: string | undefined): ScanRecord | null {
+function parseScanData(raw: string | undefined): ScanResultRecord | null {
   if (!raw) return null;
 
   try {
-    const parsed = JSON.parse(raw) as Omit<ScanRecord, "scannedAt"> & {
+    const parsed = JSON.parse(raw) as Omit<ScanResultRecord, "scannedAt"> & {
       scannedAt: string;
     };
 
@@ -39,6 +46,55 @@ function parseScanData(raw: string | undefined): ScanRecord | null {
   }
 }
 
+function parseConfidence(value: string | undefined) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseClassIndex(value: string | undefined) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseLabel(value: string | undefined): CocoaLabel | null {
+  if (value === "Healthy" || value === "Black Pod" || value === "CSSVD") {
+    return value;
+  }
+
+  return null;
+}
+
+function buildFallbackScan(params: {
+  label?: string;
+  confidence?: string;
+  classIndex?: string;
+  imageUri?: string;
+}): ScanResultRecord | null {
+  const label = parseLabel(params.label);
+
+  if (!label || !params.imageUri) {
+    return null;
+  }
+
+  const scan = buildPlantScanRecord(
+    {
+      classIndex: parseClassIndex(params.classIndex),
+      label,
+      confidence: parseConfidence(params.confidence),
+      probabilities: [],
+    },
+    params.imageUri,
+    "camera",
+    "leaf",
+  );
+
+  return {
+    ...scan,
+    id: `preview-${Date.now()}`,
+    scannedAt: new Date(),
+  };
+}
+
 function getStageColor(stageLabel: string) {
   if (stageLabel === "Healthy") return "#2E8B57";
   if (stageLabel === "Early") return colors.warningIcon;
@@ -48,15 +104,37 @@ function getStageColor(stageLabel: string) {
 
 export default function ScanResultScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ scanId?: string; scanData?: string }>();
+  const params = useLocalSearchParams<{
+    scanId?: string;
+    scanData?: string;
+    label?: string;
+    confidence?: string;
+    classIndex?: string;
+    imageUri?: string;
+  }>();
   const { scans } = useScanHistory();
   const [isSpeaking, setIsSpeaking] = useState(false);
 
   const scanId = getSingleParam(params.scanId);
   const scanData = parseScanData(getSingleParam(params.scanData));
+  const fallbackScan = useMemo(
+    () =>
+      buildFallbackScan({
+        label: getSingleParam(params.label),
+        confidence: getSingleParam(params.confidence),
+        classIndex: getSingleParam(params.classIndex),
+        imageUri: getSingleParam(params.imageUri),
+      }),
+    [params.classIndex, params.confidence, params.imageUri, params.label],
+  );
+
   const scan = useMemo(
-    () => scans.find((item) => item.id === scanId) ?? scanData ?? scans[0],
-    [scanData, scanId, scans],
+    () =>
+      scans.find((item) => item.id === scanId) ??
+      scanData ??
+      fallbackScan ??
+      scans[0],
+    [fallbackScan, scanData, scanId, scans],
   );
 
   useEffect(() => {
@@ -73,7 +151,10 @@ export default function ScanResultScreen() {
           <Text style={styles.notFoundText}>
             This scan may have been cleared. Please run a new scan.
           </Text>
-          <TouchableOpacity style={styles.primaryButton} onPress={() => router.push("/scan")}>
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() => router.push("/scan")}
+          >
             <Text style={styles.primaryButtonText}>Start new scan</Text>
           </TouchableOpacity>
         </View>
@@ -82,6 +163,7 @@ export default function ScanResultScreen() {
   }
 
   const stageColor = getStageColor(scan.stageLabel);
+  const confidencePercent = normalizeConfidence(scan.confidence);
 
   const handleListen = async () => {
     const speaking = await Speech.isSpeakingAsync();
@@ -93,7 +175,7 @@ export default function ScanResultScreen() {
 
     setIsSpeaking(true);
     Speech.speak(
-      `${scan.diseaseName}. Confidence ${scan.confidence} percent. Severity stage ${scan.stageLabel}. ${scan.recommendation}. ${scan.warning}.`,
+      `${scan.diseaseName}. Confidence ${confidencePercent.toFixed(1)} percent. Severity stage ${scan.stageLabel}. ${scan.recommendation}. ${scan.warning}.`,
       {
         rate: 0.95,
         pitch: 1,
@@ -150,31 +232,23 @@ export default function ScanResultScreen() {
             </View>
           </View>
 
-          {!scan.isCocoaLeaf ? (
-            <View style={styles.noticeCard}>
-              <Feather name="image" size={16} color={colors.warningIcon} />
-              <Text style={styles.noticeText}>
-                The detector did not see cocoa leaf features in this photo. Try
-                again with one leaf filling most of the frame.
-              </Text>
-            </View>
-          ) : null}
-
           <View style={styles.summaryCard}>
             <View style={styles.summaryHeader}>
               <Text style={styles.summaryLabel}>Confidence</Text>
-              <Text style={styles.summaryValue}>{scan.confidence}%</Text>
+              <Text style={styles.summaryValue}>{formatConfidence(scan.confidence)}</Text>
             </View>
             <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${scan.confidence}%` }]} />
+              <View style={[styles.progressFill, { width: `${confidencePercent}%` }]} />
             </View>
             <Text style={styles.summaryText}>{scan.description ?? scan.summary}</Text>
           </View>
 
-          <View style={styles.alertCard}>
-            <Feather name="alert-triangle" size={16} color={colors.warningIcon} />
-            <Text style={styles.alertText}>{scan.warning}</Text>
-          </View>
+          {scan.warning ? (
+            <View style={styles.alertCard}>
+              <Feather name="alert-triangle" size={16} color={colors.warningIcon} />
+              <Text style={styles.alertText}>{scan.warning}</Text>
+            </View>
+          ) : null}
 
           <TouchableOpacity style={styles.listenButton} onPress={handleListen} activeOpacity={0.85}>
             <View style={styles.listenIconWrap}>
@@ -203,7 +277,7 @@ export default function ScanResultScreen() {
             activeOpacity={0.85}
           >
             <Text style={styles.primaryButtonText}>
-              {scan.isCocoaLeaf ? "View Treatment steps" : "View retake tips"}
+              {scan.treatmentSteps.length > 0 ? "View Treatment steps" : "View guidance"}
             </Text>
           </TouchableOpacity>
 
@@ -362,21 +436,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#FBF4E4",
     borderRadius: radius.md,
     padding: 14,
-  },
-  noticeCard: {
-    marginTop: 14,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    backgroundColor: "#FFF8E8",
-    borderRadius: radius.md,
-    padding: 14,
-  },
-  noticeText: {
-    flex: 1,
-    fontSize: 13,
-    lineHeight: 19,
-    color: colors.warningText,
   },
   alertText: {
     flex: 1,

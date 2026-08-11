@@ -15,16 +15,26 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { colors, radius, spacing } from "@/constants/theme";
 import { useScanHistory, type ScanRecord } from "@/contexts/ScanHistoryContext";
+import {
+  buildPlantScanRecord,
+  type CocoaLabel,
+} from "@/services/plantDetection";
+import { formatConfidence, normalizeConfidence } from "@/utils/confidence";
+
+type ScanResultRecord = ScanRecord & {
+  classIndex?: number;
+  probabilities?: number[];
+};
 
 function getSingleParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function parseScanData(raw: string | undefined): ScanRecord | null {
+function parseScanData(raw: string | undefined): ScanResultRecord | null {
   if (!raw) return null;
 
   try {
-    const parsed = JSON.parse(raw) as Omit<ScanRecord, "scannedAt"> & {
+    const parsed = JSON.parse(raw) as Omit<ScanResultRecord, "scannedAt"> & {
       scannedAt: string;
     };
 
@@ -37,17 +47,88 @@ function parseScanData(raw: string | undefined): ScanRecord | null {
   }
 }
 
+function parseConfidence(value: string | undefined) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseClassIndex(value: string | undefined) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseLabel(value: string | undefined): CocoaLabel | null {
+  if (value === "Healthy" || value === "Black Pod" || value === "CSSVD") {
+    return value;
+  }
+
+  return null;
+}
+
+function buildFallbackScan(params: {
+  label?: string;
+  confidence?: string;
+  classIndex?: string;
+  imageUri?: string;
+}): ScanResultRecord | null {
+  const label = parseLabel(params.label);
+
+  if (!label || !params.imageUri) {
+    return null;
+  }
+
+  const scan = buildPlantScanRecord(
+    {
+      classIndex: parseClassIndex(params.classIndex),
+      label,
+      confidence: parseConfidence(params.confidence),
+      probabilities: [],
+    },
+    params.imageUri,
+    "camera",
+    "leaf",
+  );
+
+  return {
+    ...scan,
+    id: `preview-${Date.now()}`,
+    scannedAt: new Date(),
+  };
+}
+
 export default function TreatmentScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ scanId?: string; scanData?: string }>();
+  const params = useLocalSearchParams<{
+    scanId?: string;
+    scanData?: string;
+    label?: string;
+    confidence?: string;
+    classIndex?: string;
+    imageUri?: string;
+  }>();
   const { scans } = useScanHistory();
   const [isSpeaking, setIsSpeaking] = useState(false);
 
   const scanId = getSingleParam(params.scanId);
   const scanData = parseScanData(getSingleParam(params.scanData));
+  const fallbackScan = useMemo(
+    () =>
+      buildFallbackScan({
+        label: getSingleParam(params.label),
+        confidence: getSingleParam(params.confidence),
+        classIndex: getSingleParam(params.classIndex),
+        imageUri: getSingleParam(params.imageUri),
+      }),
+    [params.classIndex, params.confidence, params.imageUri, params.label],
+  );
+
   const scan = useMemo(
-    () => scans.find((item) => item.id === scanId) ?? scanData ?? scans[0],
-    [scanData, scanId, scans],
+    () =>
+      scans.find((item) => item.id === scanId) ??
+      scanData ??
+      fallbackScan ??
+      scans[0],
+    [fallbackScan, scanData, scanId, scans],
   );
 
   useEffect(() => {
@@ -84,9 +165,11 @@ export default function TreatmentScreen() {
     }
 
     setIsSpeaking(true);
-    const stepText = scan.treatmentSteps
-      .map((step, index) => `Step ${index + 1}. ${step.detail}`)
-      .join(" ");
+    const stepText = scan.treatmentSteps.length
+      ? scan.treatmentSteps
+          .map((step, index) => `Step ${index + 1}. ${step.detail}`)
+          .join(" ")
+      : scan.recommendation;
 
     Speech.speak(`${scan.diseaseName}. ${scan.recommendation}. ${stepText}`, {
       rate: 0.95,
@@ -107,6 +190,8 @@ export default function TreatmentScreen() {
       );
     }
   };
+
+  const confidencePercent = normalizeConfidence(scan.confidence);
 
   return (
     <View style={styles.fullBleed}>
@@ -140,7 +225,7 @@ export default function TreatmentScreen() {
               <Text style={styles.diseaseName}>{scan.diseaseName}</Text>
               <Text style={styles.diseaseMeta}>
                 {scan.isCocoaLeaf
-                  ? `${scan.stageLabel} stage - Follow these steps`
+                  ? `${scan.stageLabel} stage - ${formatConfidence(confidencePercent)} confidence`
                   : "Retake guidance - Follow these steps"}
               </Text>
             </View>
@@ -160,19 +245,28 @@ export default function TreatmentScreen() {
             </View>
           </TouchableOpacity>
 
-          <View style={styles.stepList}>
-            {scan.treatmentSteps.map((step, index) => (
-              <View key={`${scan.id}-${index}`} style={styles.stepCard}>
-                <View style={styles.stepNumberWrap}>
-                  <Text style={styles.stepNumber}>{index + 1}</Text>
+          {scan.treatmentSteps.length > 0 ? (
+            <View style={styles.stepList}>
+              {scan.treatmentSteps.map((step, index) => (
+                <View key={`${scan.id}-${index}`} style={styles.stepCard}>
+                  <View style={styles.stepNumberWrap}>
+                    <Text style={styles.stepNumber}>{index + 1}</Text>
+                  </View>
+                  <View style={styles.stepBody}>
+                    <Text style={styles.stepTitle}>{step.title}</Text>
+                    <Text style={styles.stepText}>{step.detail}</Text>
+                  </View>
                 </View>
-                <View style={styles.stepBody}>
-                  <Text style={styles.stepTitle}>{step.title}</Text>
-                  <Text style={styles.stepText}>{step.detail}</Text>
-                </View>
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.emptyGuidanceCard}>
+              <Feather name="info" size={16} color={colors.primaryDark} />
+              <Text style={styles.emptyGuidanceText}>
+                No treatment steps are stored for this result yet.
+              </Text>
+            </View>
+          )}
 
           <View style={styles.warningCard}>
             <Feather name="alert-triangle" size={16} color={colors.warningIcon} />
@@ -335,6 +429,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     color: colors.warningText,
+  },
+  emptyGuidanceCard: {
+    marginTop: 16,
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "flex-start",
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    padding: 14,
+  },
+  emptyGuidanceText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.textMuted,
   },
   primaryButton: {
     marginTop: 16,
