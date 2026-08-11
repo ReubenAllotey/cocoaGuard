@@ -1,53 +1,44 @@
-/**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
- */
+export const colors = {
+  // brand
+  primaryDark: "#0B3D2E", // main dark green background (splash, permission screens)
+  primary: "#1F3D2B", // secondary dark green (cards, text on light bg) — consider merging with primaryDark
+  primaryLight: "#3D6B4C", // mid green (icon wells, pills)
+  accent: "#E8A33D", // CTA / highlight (buttons, scan icon)
 
-import { Platform } from 'react-native';
+  // text
+  textOnDark: "#FFFFFF",
+  textOnDarkMuted: "#9FCFBB",
+  textDark: "#1F3D2B",
+  textMuted: "#6B7280",
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+  // surfaces
+  background: "#F7F5EF",
+  surface: "#FFFFFF",
+  pill: "#E4EFE6",
 
-export const Colors = {
-  light: {
-    text: '#11181C',
-    background: '#fff',
-    tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
-    tabIconSelected: tintColorLight,
-  },
-  dark: {
-    text: '#ECEDEE',
-    background: '#151718',
-    tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
-    tabIconSelected: tintColorDark,
-  },
+  // status / alerts
+  warningBg: "#FBEBD3",
+  warningBorder: "#F0D6A6",
+  warningText: "#8A5A22",
+  warningIcon: "#B8722A",
+
+  dangerBg: "#FBDCD8",
+  dangerIcon: "#C0392B",
+
+  border: "rgba(255,255,255,0.25)",
 };
 
-export const Fonts = Platform.select({
-  ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
-    serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-    mono: 'ui-monospace',
-  },
-  default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
-  },
-  web: {
-    sans: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-    serif: "Georgia, 'Times New Roman', serif",
-    rounded: "'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif",
-    mono: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-  },
-});
+export const radius = {
+  sm: 12,
+  md: 16,
+  lg: 24,
+  pill: 999,
+};
+
+export const spacing = {
+  xs: 4,
+  sm: 8,
+  md: 16,
+  lg: 20,
+  xl: 32,
+};
