@@ -1,13 +1,15 @@
-import { Image } from "react-native";
-import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
-import { toByteArray } from "base64-js";
-import * as jpeg from "jpeg-js";
-import {
-  loadTensorflowModel,
-  type TfliteModel,
-} from "react-native-fast-tflite";
-
 import { getLibraryEntry } from "@/constants/libraryData";
+import {
+  assertExactTensorMetadata,
+  decodeProbabilityScores,
+  decodeTensorBuffer,
+  getTopClass,
+  prepareImageAsRgba,
+  rgbaToFloat32RgbTensor,
+  type TensorDataType,
+} from "@/utils/modelImagePreprocessing";
+import { loadBundledTfliteModel } from "@/services/tfliteAsset";
+import type { TfliteModel } from "react-native-fast-tflite";
 
 export type CocoaLabel = "Healthy" | "Black Pod" | "CSSVD";
 export type DetectionSource = "camera" | "gallery";
@@ -27,8 +29,6 @@ export type PredictionResult = {
   confidence: number;
   probabilities: number[];
 };
-
-type TensorDataType = TfliteModel["inputs"][number]["dataType"];
 
 export type PlantScanRecord = {
   diseaseId: string;
@@ -51,275 +51,99 @@ export type PlantScanRecord = {
   probabilities: number[];
 };
 
-type ModelTensorInfo = {
-  shape: number[];
-  dataType: TensorDataType;
+type DiseaseModel = TfliteModel & {
+  inputs: [TfliteModel["inputs"][number]];
+  outputs: [TfliteModel["outputs"][number]];
 };
 
-const MODEL_LABELS: readonly CocoaLabel[] = [
+const DISEASE_MODEL_NAME = "cocoa_model.tflite";
+const DISEASE_INPUT_SHAPE = [1, 224, 224, 3];
+const DISEASE_OUTPUT_SHAPE = [1, 3];
+const EXPECTED_DISEASE_LABELS: readonly CocoaLabel[] = [
   "Healthy",
   "Black Pod",
   "CSSVD",
 ] as const;
 
-const TARGET_CHANNELS = 3;
-const MODEL_REQUIREMENT_MESSAGE =
-  "The cocoa model must expose a 3-channel image tensor.";
+const diseaseLabels = require("../assets/models/labels.json") as string[];
 
-let modelPromise: Promise<TfliteModel> | null = null;
-let cachedModel: TfliteModel | null = null;
+let modelPromise: Promise<DiseaseModel> | null = null;
+let cachedModel: DiseaseModel | null = null;
 
-function getModel() {
+function assertDiseaseLabelManifest() {
+  const actual = diseaseLabels.join("|");
+  const expected = EXPECTED_DISEASE_LABELS.join("|");
+
+  if (actual !== expected) {
+    throw new Error(
+      `assets/models/labels.json must contain exactly ${expected}, but received ${actual}.`,
+    );
+  }
+}
+
+function logModelMetadataOnce(model: DiseaseModel) {
+  if (!__DEV__) {
+    return;
+  }
+
+  console.log(DISEASE_MODEL_NAME, {
+    inputShape: model.inputs[0]?.shape,
+    inputType: model.inputs[0]?.dataType,
+    outputShape: model.outputs[0]?.shape,
+    outputType: model.outputs[0]?.dataType,
+  });
+}
+
+async function getModel() {
   if (cachedModel) {
-    return Promise.resolve(cachedModel);
+    return cachedModel;
   }
 
   if (!modelPromise) {
-    modelPromise = loadTensorflowModel(
+    modelPromise = loadBundledTfliteModel(
       require("../assets/models/cocoa_model.tflite"),
       [],
-    ).then((model) => {
-      cachedModel = model;
+      DISEASE_MODEL_NAME,
+    )
+      .then((model) => {
+        assertDiseaseLabelManifest();
+        assertExactTensorMetadata(
+          DISEASE_MODEL_NAME,
+          model.inputs[0],
+          model.outputs[0],
+          {
+            inputShape: DISEASE_INPUT_SHAPE,
+            inputDataType: "float32",
+            outputShape: DISEASE_OUTPUT_SHAPE,
+            outputDataType: "float32",
+          },
+        );
 
-      if (__DEV__) {
-        const details = {
-          inputs: model.inputs.map((tensor) => ({
-            name: tensor.name,
-            shape: tensor.shape,
-            dataType: tensor.dataType,
-          })),
-          outputs: model.outputs.map((tensor) => ({
-            name: tensor.name,
-            shape: tensor.shape,
-            dataType: tensor.dataType,
-          })),
-        };
-
-        console.log("Loaded cocoa_model.tflite", details);
-      }
-
-      return model;
-    });
+        cachedModel = model as DiseaseModel;
+        logModelMetadataOnce(cachedModel);
+        return cachedModel;
+      })
+      .catch((error) => {
+        modelPromise = null;
+        throw error;
+      });
   }
 
   return modelPromise;
 }
 
-function getTensorInfo(tensor: { shape: number[]; dataType: TensorDataType }) {
-  return {
-    shape: tensor.shape,
-    dataType: tensor.dataType,
-  } satisfies ModelTensorInfo;
-}
+function getDiseaseLabel(index: number): CocoaLabel {
+  const label = diseaseLabels[index];
 
-function getSpatialDimensions(shape: number[]) {
-  if (shape.length < 3) {
-    throw new Error(
-      `Unexpected tensor shape ${JSON.stringify(shape)}. ${MODEL_REQUIREMENT_MESSAGE}`,
-    );
+  if (
+    label === "Healthy" ||
+    label === "Black Pod" ||
+    label === "CSSVD"
+  ) {
+    return label;
   }
 
-  const [height, width, channels] = shape.slice(-3);
-
-  if (channels !== TARGET_CHANNELS) {
-    throw new Error(
-      `Expected a 3-channel RGB input tensor, received shape ${JSON.stringify(shape)}.`,
-    );
-  }
-
-  return { height, width, channels };
-}
-
-function softmax(values: number[]) {
-  const max = Math.max(...values);
-
-  if (!Number.isFinite(max)) {
-    throw new Error("Model output contained invalid scores.");
-  }
-
-  const expValues = values.map((value) => Math.exp(value - max));
-  const sum = expValues.reduce((accumulator, value) => accumulator + value, 0);
-
-  if (sum <= 0) {
-    throw new Error("Model output normalization failed.");
-  }
-
-  return expValues.map((value) => value / sum);
-}
-
-function convertHalfToFloat(value: number) {
-  const sign = (value & 0x8000) >> 15;
-  const exponent = (value & 0x7c00) >> 10;
-  const fraction = value & 0x03ff;
-
-  if (exponent === 0) {
-    if (fraction === 0) {
-      return sign ? -0 : 0;
-    }
-
-    return (
-      (sign ? -1 : 1) *
-      Math.pow(2, -14) *
-      (fraction / Math.pow(2, 10))
-    );
-  }
-
-  if (exponent === 0x1f) {
-    return fraction === 0 ? (sign ? -Infinity : Infinity) : NaN;
-  }
-
-  return (
-    (sign ? -1 : 1) *
-    Math.pow(2, exponent - 15) *
-    (1 + fraction / Math.pow(2, 10))
-  );
-}
-
-function normalizeScores(values: number[]) {
-  if (values.length !== MODEL_LABELS.length) {
-    throw new Error(
-      `Expected ${MODEL_LABELS.length} output scores, received ${values.length}.`,
-    );
-  }
-
-  if (values.every((value) => Number.isFinite(value) && value >= 0 && value <= 1)) {
-    const sum = values.reduce((accumulator, value) => accumulator + value, 0);
-
-    if (Math.abs(sum - 1) < 0.02) {
-      return values;
-    }
-  }
-
-  return softmax(values);
-}
-
-function decodeTensorBuffer(buffer: ArrayBuffer, dataType: TensorDataType) {
-  switch (dataType) {
-    case "float32":
-      return Array.from(new Float32Array(buffer));
-    case "float16": {
-      const source = new Uint16Array(buffer);
-      return Array.from(source, convertHalfToFloat);
-    }
-    case "uint8":
-      return Array.from(new Uint8Array(buffer));
-    case "int8":
-      return Array.from(new Int8Array(buffer));
-    default:
-      throw new Error(`Unsupported output tensor data type: ${dataType}`);
-  }
-}
-
-function buildInputTensor(
-  rgbaPixels: Uint8Array,
-  dataType: TensorDataType,
-) {
-  if (dataType === "float32") {
-    const input = new Float32Array(rgbaPixels.length / 4 * 3);
-    for (let rgbaIndex = 0, rgbIndex = 0; rgbaIndex < rgbaPixels.length; rgbaIndex += 4) {
-      input[rgbIndex++] = rgbaPixels[rgbaIndex];
-      input[rgbIndex++] = rgbaPixels[rgbaIndex + 1];
-      input[rgbIndex++] = rgbaPixels[rgbaIndex + 2];
-    }
-    return input.buffer;
-  }
-
-  if (dataType === "uint8") {
-    const input = new Uint8Array((rgbaPixels.length / 4) * 3);
-    for (let rgbaIndex = 0, rgbIndex = 0; rgbaIndex < rgbaPixels.length; rgbaIndex += 4) {
-      input[rgbIndex++] = rgbaPixels[rgbaIndex];
-      input[rgbIndex++] = rgbaPixels[rgbaIndex + 1];
-      input[rgbIndex++] = rgbaPixels[rgbaIndex + 2];
-    }
-    return input.buffer;
-  }
-
-  throw new Error(
-    `Unsupported input tensor data type: ${dataType}. ${MODEL_REQUIREMENT_MESSAGE}`,
-  );
-}
-
-async function getImageSize(uri: string) {
-  return new Promise<{ width: number; height: number }>((resolve, reject) => {
-    Image.getSize(
-      uri,
-      (width, height) => {
-        resolve({ width, height });
-      },
-      (error) => {
-        reject(error);
-      },
-    );
-  });
-}
-
-async function preprocessImageToRgb(imageUri: string, targetWidth: number, targetHeight: number) {
-  const { width, height } = await getImageSize(imageUri).catch(() => ({
-    width: targetWidth,
-    height: targetHeight,
-  }));
-
-  const cropSize = Math.min(width, height);
-  const cropX = Math.max(0, Math.round((width - cropSize) / 2));
-  const cropY = Math.max(0, Math.round((height - cropSize) / 2));
-
-  const actions =
-    width === height
-      ? [{ resize: { width: targetWidth, height: targetHeight } }]
-      : [
-          {
-            crop: {
-              originX: cropX,
-              originY: cropY,
-              width: cropSize,
-              height: cropSize,
-            },
-          },
-          { resize: { width: targetWidth, height: targetHeight } },
-        ];
-
-  const manipulated = await manipulateAsync(imageUri, actions, {
-    format: SaveFormat.JPEG,
-    base64: true,
-    compress: 1,
-  });
-
-  if (!manipulated.base64) {
-    throw new Error("Failed to prepare image for the model.");
-  }
-
-  const jpegBytes = toByteArray(manipulated.base64);
-  const decoded = jpeg.decode(jpegBytes, { useTArray: true });
-
-  if (decoded.width !== targetWidth || decoded.height !== targetHeight) {
-    throw new Error("Image preprocessing produced an unexpected tensor size.");
-  }
-
-  return decoded.data;
-}
-
-function pickLabelFromProbabilities(probabilities: number[]) {
-  let classIndex = 0;
-  let confidence = probabilities[0] ?? 0;
-
-  probabilities.forEach((value, index) => {
-    if (value > confidence) {
-      confidence = value;
-      classIndex = index;
-    }
-  });
-
-  const label = MODEL_LABELS[classIndex];
-
-  if (!label) {
-    throw new Error(`Unsupported class index ${classIndex}.`);
-  }
-
-  return {
-    classIndex,
-    label,
-    confidence,
-  };
+  throw new Error(`Invalid disease class index ${index}.`);
 }
 
 function getStageLabel(label: CocoaLabel, confidence: number): DetectionScanStage {
@@ -358,7 +182,7 @@ function buildDiseaseMetadata(label: CocoaLabel) {
       : getLibraryEntry("cssvd");
 
   if (!entry) {
-    throw new Error(`No metadata found for class label ${label}.`);
+    throw new Error(`No metadata found for disease class ${label}.`);
   }
 
   const treatmentSteps = entry.treatment.map((detail, index) => ({
@@ -381,6 +205,14 @@ function buildDiseaseMetadata(label: CocoaLabel) {
   };
 }
 
+function buildRgbInputBuffer(rgbaPixels: Uint8Array, dataType: TensorDataType) {
+  if (dataType !== "float32") {
+    throw new Error(`Disease model input dtype must be float32, but received ${dataType}.`);
+  }
+
+  return rgbaToFloat32RgbTensor(rgbaPixels);
+}
+
 export async function predictPlantDisease(imageUri: string): Promise<PredictionResult> {
   if (!imageUri) {
     throw new Error("An image URI is required for prediction.");
@@ -390,27 +222,24 @@ export async function predictPlantDisease(imageUri: string): Promise<PredictionR
   const input = model.inputs[0];
   const output = model.outputs[0];
 
-  if (!input || !output) {
-    throw new Error("The cocoa model does not expose the expected input/output tensors.");
-  }
-
-  const { height, width } = getSpatialDimensions(getTensorInfo(input).shape);
-  const rgbPixels = await preprocessImageToRgb(imageUri, width, height);
-  const inputBuffer = buildInputTensor(rgbPixels, input.dataType);
+  const rgbaPixels = await prepareImageAsRgba(imageUri, 224, 224);
+  const inputBuffer = buildRgbInputBuffer(rgbaPixels, input.dataType);
   const outputs = model.runSync([inputBuffer]);
+  const rawOutput = outputs[0];
 
-  if (!outputs[0]) {
-    throw new Error("The model did not return any output tensors.");
+  if (!rawOutput) {
+    throw new Error("The cocoa disease model did not return any output.");
   }
 
-  const rawScores = decodeTensorBuffer(outputs[0], output.dataType);
-  const probabilities = normalizeScores(rawScores);
-  const selected = pickLabelFromProbabilities(probabilities);
+  const decoded = decodeTensorBuffer(rawOutput, output.dataType);
+  const probabilities = decodeProbabilityScores(decoded, 3);
+  const { classIndex, confidence } = getTopClass(probabilities);
+  const label = getDiseaseLabel(classIndex);
 
   return {
-    classIndex: selected.classIndex,
-    label: selected.label,
-    confidence: selected.confidence,
+    classIndex,
+    label,
+    confidence,
     probabilities,
   };
 }

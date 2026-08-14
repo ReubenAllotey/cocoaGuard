@@ -1,6 +1,6 @@
 import { createContext, ReactNode, useContext, useMemo, useState } from "react";
 
-import type { ScanSubject } from "@/services/scanAnalysis";
+import type { DetectionSubject as ScanSubject } from "@/services/plantDetection";
 
 export type PendingScanCapture = {
   uri: string;

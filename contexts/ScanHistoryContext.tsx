@@ -1,7 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, ReactNode, useContext, useEffect, useState } from "react";
 
-import type { ScanSubject, TreatmentStep } from "@/services/scanAnalysis";
+import type {
+  DetectionSubject as ScanSubject,
+  TreatmentStep,
+} from "@/services/plantDetection";
 
 export type ScanSeverity = "needs attention" | "healthy" | "monitor";
 
@@ -25,6 +28,8 @@ export type ScanRecord = {
   warning: string;
   isCocoaLeaf: boolean;
   modelLabel: string;
+  classIndex?: number;
+  probabilities?: number[];
   scannedAt: Date;
 };
 
