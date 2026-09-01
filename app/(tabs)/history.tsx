@@ -16,7 +16,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import BottomNav, { TabKey } from "@/components/BottomNav";
 import { colors, radius, spacing } from "@/constants/theme";
 import { useScanHistory } from "@/contexts/ScanHistoryContext";
-import { formatConfidence } from "@/utils/confidence";
+import {
+  formatConfidence,
+  getConfidenceLevel,
+  getConfidenceLevelColor,
+} from "@/utils/confidence";
 import { buildScanShareMessage } from "@/utils/scanSharing";
 
 function getGroupLabel(date: Date) {
@@ -29,13 +33,6 @@ function getGroupLabel(date: Date) {
   if (diffDays < 14) return "1 Week Ago";
   if (diffDays < 21) return "2 Weeks Ago";
   return `${Math.ceil(diffDays / 7)} Weeks Ago`;
-}
-
-function getStageColor(stageLabel: string) {
-  if (stageLabel === "Healthy") return "#2E8B57";
-  if (stageLabel === "Early") return colors.warningIcon;
-  if (stageLabel === "Moderate") return "#D97706";
-  return colors.dangerIcon;
 }
 
 export default function HistoryScreen() {
@@ -123,7 +120,10 @@ export default function HistoryScreen() {
                 <Text style={styles.groupTitle}>{label}</Text>
                 <View style={styles.groupCard}>
                   {items.map((scan, index) => {
-                    const stageColor = getStageColor(scan.stageLabel);
+                    const confidenceLevel =
+                      scan.confidenceLevel ?? getConfidenceLevel(scan.confidence);
+                    const confidenceLevelColor =
+                      getConfidenceLevelColor(confidenceLevel);
 
                     return (
                       <View
@@ -169,21 +169,21 @@ export default function HistoryScreen() {
                               <View
                                 style={[
                                   styles.stageChip,
-                                  { backgroundColor: `${stageColor}20` },
+                                  { backgroundColor: `${confidenceLevelColor}20` },
                                 ]}
                               >
                                 <Text
                                   style={[
                                     styles.stageChipText,
-                                    { color: stageColor },
+                                    { color: confidenceLevelColor },
                                   ]}
                                 >
-                                  {scan.stageLabel}
+                                  {confidenceLevel}
                                 </Text>
                               </View>
                             </View>
                             <Text style={styles.rowMeta} numberOfLines={1}>
-                              {formatConfidence(scan.confidence)} confidence - {scan.scientificName}
+                              {formatConfidence(scan.confidence)} confidence · {scan.scientificName}
                             </Text>
                           </View>
                         </TouchableOpacity>

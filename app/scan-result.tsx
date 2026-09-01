@@ -17,7 +17,13 @@ import { colors, radius, spacing } from "@/constants/theme";
 import { useScanHistory, type ScanRecord } from "@/contexts/ScanHistoryContext";
 import { buildPlantScanRecord, type CocoaLabel } from "@/services/plantDetection";
 import { formatRelativeTime } from "@/utils/formatRelativeTime";
-import { formatConfidence, normalizeConfidence } from "@/utils/confidence";
+import {
+  formatConfidence,
+  getConfidenceLevel,
+  getConfidenceLevelColor,
+  normalizeConfidence,
+  type ConfidenceLevel,
+} from "@/utils/confidence";
 import { buildScanShareMessage } from "@/utils/scanSharing";
 
 type ScanResultRecord = ScanRecord & {
@@ -64,6 +70,14 @@ function parseLabel(value: string | undefined): CocoaLabel | null {
   return null;
 }
 
+function getDisplayName(label: string) {
+  return label === "Healthy" ? "Healthy Cocoa Leaf" : label;
+}
+
+function getConfidenceLabel(scan: ScanRecord): ConfidenceLevel {
+  return scan.confidenceLevel ?? getConfidenceLevel(scan.confidence);
+}
+
 function buildFallbackScan(params: {
   label?: string;
   confidence?: string;
@@ -93,13 +107,6 @@ function buildFallbackScan(params: {
     id: `preview-${Date.now()}`,
     scannedAt: new Date(),
   };
-}
-
-function getStageColor(stageLabel: string) {
-  if (stageLabel === "Healthy") return "#2E8B57";
-  if (stageLabel === "Early") return colors.warningIcon;
-  if (stageLabel === "Moderate") return "#D97706";
-  return colors.dangerIcon;
 }
 
 export default function ScanResultScreen() {
@@ -162,8 +169,14 @@ export default function ScanResultScreen() {
     );
   }
 
-  const stageColor = getStageColor(scan.stageLabel);
+  const confidenceLevel = getConfidenceLabel(scan);
+  const confidenceLevelColor = getConfidenceLevelColor(confidenceLevel);
   const confidencePercent = normalizeConfidence(scan.confidence);
+  const displayName = getDisplayName(scan.diseaseName);
+  const displayMeta =
+    scan.diseaseName === "Healthy"
+      ? "No treatment required."
+      : scan.scientificName;
 
   const handleListen = async () => {
     const speaking = await Speech.isSpeakingAsync();
@@ -174,8 +187,18 @@ export default function ScanResultScreen() {
     }
 
     setIsSpeaking(true);
+    const speechParts = [
+      `${displayName}.`,
+      `Confidence ${confidencePercent.toFixed(1)} percent.`,
+      `${confidenceLevel}.`,
+      scan.diseaseName === "Healthy"
+        ? "No treatment required."
+        : scan.recommendation,
+      scan.warning,
+    ];
+
     Speech.speak(
-      `${scan.diseaseName}. Confidence ${confidencePercent.toFixed(1)} percent. Severity stage ${scan.stageLabel}. ${scan.recommendation}. ${scan.warning}.`,
+      speechParts.filter(Boolean).join(" "),
       {
         rate: 0.95,
         pitch: 1,
@@ -222,12 +245,19 @@ export default function ScanResultScreen() {
 
           <View style={styles.titleRow}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.diseaseName}>{scan.diseaseName}</Text>
-              <Text style={styles.diseaseMeta}>{scan.scientificName}</Text>
+              <Text style={styles.diseaseName}>{displayName}</Text>
+              <Text style={styles.diseaseMeta}>{displayMeta}</Text>
             </View>
-            <View style={[styles.stagePill, { backgroundColor: `${stageColor}20` }]}>
-              <Text style={[styles.stagePillText, { color: stageColor }]}>
-                {scan.stageLabel}
+            <View
+              style={[
+                styles.stagePill,
+                { backgroundColor: `${confidenceLevelColor}20` },
+              ]}
+            >
+              <Text
+                style={[styles.stagePillText, { color: confidenceLevelColor }]}
+              >
+                {confidenceLevel}
               </Text>
             </View>
           </View>

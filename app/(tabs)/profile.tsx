@@ -22,8 +22,8 @@ export default function ProfileScreen() {
   const [activeTab, setActiveTab] = useState<TabKey>("profile");
 
   const totalScans = scans.length;
-  const needsAttentionCount = scans.filter(
-    (s) => s.severity === "needs attention",
+  const diseasedScanCount = scans.filter(
+    (s) => s.diseaseName !== "Healthy",
   ).length;
 
   const handleTabChange = (tab: TabKey) => {
@@ -106,8 +106,8 @@ export default function ProfileScreen() {
               <Text style={styles.statLabel}>Total scans</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={styles.statValue}>{needsAttentionCount}</Text>
-              <Text style={styles.statLabel}>Needs attention</Text>
+              <Text style={styles.statValue}>{diseasedScanCount}</Text>
+              <Text style={styles.statLabel}>Diseased scans</Text>
             </View>
           </View>
 

@@ -19,7 +19,11 @@ import {
   buildPlantScanRecord,
   type CocoaLabel,
 } from "@/services/plantDetection";
-import { formatConfidence, normalizeConfidence } from "@/utils/confidence";
+import {
+  formatConfidence,
+  getConfidenceLevel,
+  normalizeConfidence,
+} from "@/utils/confidence";
 
 type ScanResultRecord = ScanRecord & {
   classIndex?: number;
@@ -192,6 +196,7 @@ export default function TreatmentScreen() {
   };
 
   const confidencePercent = normalizeConfidence(scan.confidence);
+  const confidenceLevel = scan.confidenceLevel ?? getConfidenceLevel(scan.confidence);
 
   return (
     <View style={styles.fullBleed}>
@@ -225,7 +230,9 @@ export default function TreatmentScreen() {
               <Text style={styles.diseaseName}>{scan.diseaseName}</Text>
               <Text style={styles.diseaseMeta}>
                 {scan.isCocoaLeaf
-                  ? `${scan.stageLabel} stage - ${formatConfidence(confidencePercent)} confidence`
+                  ? scan.diseaseName === "Healthy"
+                    ? `No treatment required - ${formatConfidence(confidencePercent)} confidence`
+                    : `${confidenceLevel} - ${formatConfidence(confidencePercent)} confidence`
                   : "Retake guidance - Follow these steps"}
               </Text>
             </View>
@@ -263,7 +270,9 @@ export default function TreatmentScreen() {
             <View style={styles.emptyGuidanceCard}>
               <Feather name="info" size={16} color={colors.primaryDark} />
               <Text style={styles.emptyGuidanceText}>
-                No treatment steps are stored for this result yet.
+                {scan.diseaseName === "Healthy"
+                  ? "No treatment required for a healthy cocoa leaf."
+                  : "No treatment steps are stored for this result yet."}
               </Text>
             </View>
           )}

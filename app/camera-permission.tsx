@@ -1,32 +1,34 @@
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  StatusBar,
-  Alert,
-} from "react-native";
-import { router } from "expo-router";
 import { useCameraPermissions } from "expo-camera";
+import { router } from "expo-router";
+import {
+  Alert,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+
 import CameraIcon from "@/components/ui/CameraIcon";
 import { colors, radius, spacing } from "@/constants/theme";
+import { completeOnboarding } from "@/utils/onboarding";
 
 export default function CameraPermissionScreen() {
   const [permission, requestPermission] = useCameraPermissions();
 
   // Note: no auto-redirect-if-already-granted effect here. Home always
   // routes to /scan first, and /scan only sends the user here when it has
-  // already confirmed permission is genuinely not granted — so by the time
+  // already confirmed permission is genuinely not granted â€” so by the time
   // this screen is reached, self-checking again just races with that
   // decision and can bounce the user back before they can tap anything.
 
   const handleAllow = async () => {
     const result = await requestPermission();
     if (result.granted) {
-      // permission granted — go to home, not straight into the camera
-      router.replace("/(tabs)" as any);
+      // permission granted â€” go to home, not straight into the camera
+      await completeOnboarding(router as any);
     } else {
-      // permission denied — show explanation
+      // permission denied â€” show explanation
       Alert.alert(
         "Camera access needed",
         "CocoaGuard needs camera access to scan your cocoa plants. You can enable it in your phone settings.",
@@ -51,7 +53,7 @@ export default function CameraPermissionScreen() {
   const handleNotNow = () => {
     // skip permission for now, go to home
     // camera will prompt again when scan button is tapped
-    router.replace("/(tabs)" as any);
+    void completeOnboarding(router as any);
   };
 
   return (

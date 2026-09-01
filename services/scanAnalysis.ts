@@ -1,4 +1,5 @@
 import { getLibraryEntry, LIBRARY_ENTRIES } from "@/constants/libraryData";
+import { getConfidenceLevel } from "@/utils/confidence";
 
 export type ScanSubject = "leaf" | "pod";
 
@@ -14,8 +15,7 @@ export type ScanAnalysis = {
   summary: string;
   description: string;
   confidence: number;
-  stageLabel: "Early" | "Moderate" | "Advanced" | "Healthy";
-  severity: "needs attention" | "monitor" | "healthy";
+  confidenceLevel: ReturnType<typeof getConfidenceLevel>;
   recommendation: string;
   warning: string;
   treatmentSteps: TreatmentStep[];
@@ -81,7 +81,8 @@ function buildListenText(scan: Omit<ScanAnalysis, "listenText">) {
     `${scan.diseaseName}.`,
     scan.scientificName ? `${scan.scientificName}.` : "",
     `Confidence ${scan.confidence} percent.`,
-    scan.isCocoaLeaf ? `Severity stage ${scan.stageLabel}.` : "This photo does not appear to be a cocoa leaf.",
+    `Confidence level ${scan.confidenceLevel}.`,
+    scan.isCocoaLeaf ? "" : "This photo does not appear to be a cocoa leaf.",
     scan.recommendation,
     scan.warning,
     treatmentSummary,
@@ -95,18 +96,6 @@ function pickDiseaseProfile(seed: number) {
   return diseaseIds[seed % diseaseIds.length];
 }
 
-function pickStageLabel(confidence: number): ScanAnalysis["stageLabel"] {
-  if (confidence >= 86) {
-    return "Advanced";
-  }
-
-  if (confidence >= 72) {
-    return "Moderate";
-  }
-
-  return "Early";
-}
-
 export function analyzePayload(payload: AnalyzePayload): ScanAnalysis {
   const sourceSignature = payload.imageBase64 ?? payload.imageUri ?? "";
   const hash = hashString(sourceSignature || `${payload.subject ?? "leaf"}:${payload.source ?? "camera"}`);
@@ -114,6 +103,7 @@ export function analyzePayload(payload: AnalyzePayload): ScanAnalysis {
 
   if (!isCocoaLeaf) {
     const confidence = 82 + (hash % 13);
+    const confidenceLevel = getConfidenceLevel(confidence / 100);
     const treatmentSteps = buildGenericTreatmentSteps();
     const scan: Omit<ScanAnalysis, "listenText"> = {
       diseaseId: "not-cocoa-leaf",
@@ -122,8 +112,7 @@ export function analyzePayload(payload: AnalyzePayload): ScanAnalysis {
       summary: "The photo does not look like a cocoa leaf. Try again with a single leaf filling most of the frame.",
       description: "The detector could not confirm cocoa leaf features in this image.",
       confidence,
-      stageLabel: "Healthy",
-      severity: "healthy",
+      confidenceLevel,
       recommendation: "Retake the photo with a clear cocoa leaf centered in the frame.",
       warning: "We could not confidently match leaf shape, texture, and color to cocoa foliage.",
       treatmentSteps,
@@ -141,6 +130,7 @@ export function analyzePayload(payload: AnalyzePayload): ScanAnalysis {
   const diseaseId = pickDiseaseProfile(hash);
   const entry = getLibraryEntry(diseaseId) ?? LIBRARY_ENTRIES[0];
   const confidence = 71 + (hash % 22);
+  const confidenceLevel = getConfidenceLevel(confidence / 100);
   const treatmentSteps = buildTreatmentSteps(entry.id);
 
   const scan: Omit<ScanAnalysis, "listenText"> = {
@@ -150,8 +140,7 @@ export function analyzePayload(payload: AnalyzePayload): ScanAnalysis {
     summary: entry.summary,
     description: entry.summary,
     confidence,
-    stageLabel: pickStageLabel(confidence),
-    severity: confidence >= 85 ? "needs attention" : "monitor",
+    confidenceLevel,
     recommendation:
       entry.id === "black-pod"
         ? "Remove infected pods and improve airflow around the tree."

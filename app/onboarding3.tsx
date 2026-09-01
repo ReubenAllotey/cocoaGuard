@@ -1,14 +1,15 @@
 import CheckList from "@/components/ui/CheckListIcon";
+import { OnboardingSkipButton } from "@/components/ui/OnboardingSkipButton";
+import { completeOnboarding } from "@/utils/onboarding";
 import { router } from "expo-router";
 import { useEffect, useRef } from "react";
 import { Animated, StatusBar, StyleSheet, Text, View } from "react-native";
 
-export default function Onboarding2() {
+export default function Onboarding3() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.85)).current;
 
   useEffect(() => {
-    // fade + scale in on load
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -22,7 +23,7 @@ export default function Onboarding2() {
         useNativeDriver: true,
       }),
     ]).start();
-    // navigate to third onboarding screen  after 2.5 seconds
+
     const timer = setTimeout(() => {
       router.replace("/camera-permission" as any);
     }, 4500);
@@ -30,11 +31,15 @@ export default function Onboarding2() {
     return () => clearTimeout(timer);
   }, [fadeAnim, scaleAnim]);
 
+  const handleSkip = async () => {
+    await completeOnboarding(router as any);
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0B3D2E" />
+      <OnboardingSkipButton onPress={handleSkip} />
 
-      {/* center content */}
       <Animated.View
         style={[
           styles.content,
@@ -44,21 +49,16 @@ export default function Onboarding2() {
           },
         ]}
       >
-        {/*     leaf icon*/}
         <CheckList size={180} color="#E8A33D" bgColor="#0B3D2E" />
 
-        {/* onboarding stage 2 */}
         <Text style={styles.appName}>Follow Treatment Steps</Text>
 
-        {/* tagline */}
         <Text style={styles.tagline}>
-          Get a clear steps for your treatment of disease
+          Get clear steps for your treatment of disease.
         </Text>
       </Animated.View>
 
-      {/* bottom section */}
       <Animated.View style={[styles.bottom, { opacity: fadeAnim }]}>
-        {/* page indicators */}
         <View style={styles.indicators}>
           <View style={styles.dot} />
           <View style={styles.dot} />
@@ -66,7 +66,6 @@ export default function Onboarding2() {
           <View style={[styles.dot, styles.dotActive]} />
         </View>
 
-        {/* offline note */}
         <Text style={styles.offlineText}>
           works offline · no internet needed
         </Text>

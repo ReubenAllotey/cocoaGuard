@@ -17,6 +17,7 @@ import CocoaLogo from "@/components/ui/CocoaLogo";
 import LeafIcon from "@/components/ui/LeafIcon";
 import { colors, radius, spacing } from "@/constants/theme";
 import { useScanHistory } from "@/contexts/ScanHistoryContext";
+import { getConfidenceLevel } from "@/utils/confidence";
 import { formatRelativeTime } from "@/utils/formatRelativeTime";
 
 export default function Home() {
@@ -30,7 +31,7 @@ export default function Home() {
     if (tab === "library") router.push("/library");
     if (tab === "history") router.push("/history");
     if (tab === "profile") router.push("/profile");
-    // "home" is already this screen — no navigation needed
+    // "home" is already this screen â€” no navigation needed
   };
 
   return (
@@ -95,7 +96,7 @@ export default function Home() {
             />
           </View>
 
-          {/* Recent scan — reflects whatever scan was logged most recently */}
+          {/* Recent scan â€” reflects whatever scan was logged most recently */}
           <View style={styles.recentSection}>
             <Text style={styles.recentLabel}>Recent Scan</Text>
             {latestScan ? (
@@ -109,14 +110,15 @@ export default function Home() {
                   </Text>
                   <Text style={styles.recentSubtitle}>
                     {formatRelativeTime(latestScan.scannedAt)} ·{" "}
-                    {latestScan.severity}
+                    {latestScan.confidenceLevel ??
+                      getConfidenceLevel(latestScan.confidence)}
                   </Text>
                 </View>
               </TouchableOpacity>
             ) : (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyText}>
-                  No scans yet — tap above to scan your first leaf or pod.
+                  No scans yet â€” tap above to scan your first leaf or pod.
                 </Text>
               </View>
             )}

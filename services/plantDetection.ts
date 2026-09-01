@@ -9,6 +9,7 @@ import {
   type TensorDataType,
 } from "@/utils/modelImagePreprocessing";
 import { loadBundledTfliteModel } from "@/services/tfliteAsset";
+import { getConfidenceLevel, type ConfidenceLevel } from "@/utils/confidence";
 import type { TfliteModel } from "react-native-fast-tflite";
 
 export type CocoaLabel = "Healthy" | "Black Pod" | "CSSVD";
@@ -19,9 +20,6 @@ export type TreatmentStep = {
   title: string;
   detail: string;
 };
-
-export type DetectionScanStage = "Early" | "Moderate" | "Advanced" | "Healthy";
-export type DetectionSeverity = "needs attention" | "monitor" | "healthy";
 
 export type PredictionResult = {
   classIndex: number;
@@ -36,9 +34,8 @@ export type PlantScanRecord = {
   scientificName: string;
   summary: string;
   description: string;
-  severity: DetectionSeverity;
-  stageLabel: DetectionScanStage;
   confidence: number;
+  confidenceLevel: ConfidenceLevel;
   imageUri: string;
   subject: DetectionSubject;
   source: DetectionSource;
@@ -146,22 +143,6 @@ function getDiseaseLabel(index: number): CocoaLabel {
   throw new Error(`Invalid disease class index ${index}.`);
 }
 
-function getStageLabel(label: CocoaLabel, confidence: number): DetectionScanStage {
-  if (label === "Healthy") {
-    return "Healthy";
-  }
-
-  if (confidence >= 0.86) {
-    return "Advanced";
-  }
-
-  if (confidence >= 0.72) {
-    return "Moderate";
-  }
-
-  return "Early";
-}
-
 function buildDiseaseMetadata(label: CocoaLabel) {
   if (label === "Healthy") {
     return {
@@ -170,9 +151,8 @@ function buildDiseaseMetadata(label: CocoaLabel) {
       summary: "No disease signs were detected in this image.",
       description: "The classifier marked this leaf as healthy.",
       recommendation: "No treatment is needed. Keep monitoring the tree.",
-      warning: "Healthy cocoa leaf detected.",
+      warning: "No treatment required.",
       treatmentSteps: [] as TreatmentStep[],
-      severity: "healthy" as DetectionSeverity,
     };
   }
 
@@ -201,7 +181,6 @@ function buildDiseaseMetadata(label: CocoaLabel) {
         : "Follow the treatment steps below and stop further spread quickly.",
     warning: entry.summary,
     treatmentSteps,
-    severity: "needs attention" as DetectionSeverity,
   };
 }
 
@@ -251,7 +230,6 @@ export function buildPlantScanRecord(
   subject: DetectionSubject,
 ): PlantScanRecord {
   const metadata = buildDiseaseMetadata(prediction.label);
-  const stageLabel = getStageLabel(prediction.label, prediction.confidence);
 
   return {
     diseaseId: metadata.diseaseId,
@@ -259,9 +237,8 @@ export function buildPlantScanRecord(
     scientificName: metadata.scientificName,
     summary: metadata.summary,
     description: metadata.description,
-    severity: metadata.severity,
-    stageLabel,
     confidence: prediction.confidence,
+    confidenceLevel: getConfidenceLevel(prediction.confidence),
     imageUri,
     subject,
     source,

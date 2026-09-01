@@ -3,7 +3,10 @@ import { useEffect, useRef } from "react";
 import { Animated, StatusBar, StyleSheet, Text, View } from "react-native";
 import Svg, { Ellipse, Path } from "react-native-svg";
 
-// Cocoa pod logo inline — no separate file needed
+import { OnboardingSkipButton } from "@/components/ui/OnboardingSkipButton";
+import { hasCompletedOnboarding, completeOnboarding, getMainAppRoute } from "@/utils/onboarding";
+
+// Cocoa pod logo inline â€” no separate file needed
 function CocoaPod({ size = 120 }: { size?: number }) {
   return (
     <Svg width={size} height={size * 1.33} viewBox="0 0 120 160">
@@ -68,7 +71,9 @@ export default function SplashScreen() {
   const scaleAnim = useRef(new Animated.Value(0.85)).current;
 
   useEffect(() => {
-    // fade + scale in on load
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
@@ -83,17 +88,40 @@ export default function SplashScreen() {
       }),
     ]).start();
 
-    // navigate to tabs after 2.5 seconds
-    const timer = setTimeout(() => {
-      router.replace("/onboarding1" as any);
-    }, 4500);
+    const startRouting = async () => {
+      const completed = await hasCompletedOnboarding();
+      if (cancelled) {
+        return;
+      }
 
-    return () => clearTimeout(timer);
+      if (completed) {
+        router.replace(getMainAppRoute() as any);
+        return;
+      }
+
+      timeoutId = setTimeout(() => {
+        router.replace("/onboarding1" as any);
+      }, 4500);
+    };
+
+    void startRouting();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
   }, [fadeAnim, scaleAnim]);
+
+  const handleSkip = async () => {
+    await completeOnboarding(router as any);
+  };
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0B3D2E" />
+      <OnboardingSkipButton onPress={handleSkip} />
 
       {/* center content */}
       <Animated.View

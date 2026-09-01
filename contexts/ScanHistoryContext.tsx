@@ -5,10 +5,10 @@ import type {
   DetectionSubject as ScanSubject,
   TreatmentStep,
 } from "@/services/plantDetection";
-
-export type ScanSeverity = "needs attention" | "healthy" | "monitor";
-
-export type ScanStage = "Early" | "Moderate" | "Advanced" | "Healthy";
+import {
+  getConfidenceLevel,
+  type ConfidenceLevel,
+} from "@/utils/confidence";
 
 export type ScanRecord = {
   id: string;
@@ -17,9 +17,8 @@ export type ScanRecord = {
   scientificName: string;
   summary: string;
   description: string;
-  severity: ScanSeverity;
-  stageLabel: ScanStage;
   confidence: number;
+  confidenceLevel: ConfidenceLevel;
   imageUri: string;
   subject: ScanSubject;
   source: "camera" | "gallery";
@@ -35,6 +34,8 @@ export type ScanRecord = {
 
 type StoredScanRecord = Omit<ScanRecord, "scannedAt"> & {
   scannedAt: string;
+  severity?: string;
+  stageLabel?: string;
 };
 
 type ScanHistoryContextValue = {
@@ -63,7 +64,24 @@ function toStoredScan(scan: ScanRecord): StoredScanRecord {
 
 function fromStoredScan(scan: StoredScanRecord): ScanRecord {
   return {
-    ...scan,
+    id: scan.id,
+    diseaseId: scan.diseaseId,
+    diseaseName: scan.diseaseName,
+    scientificName: scan.scientificName,
+    summary: scan.summary,
+    description: scan.description,
+    confidence: scan.confidence,
+    confidenceLevel: scan.confidenceLevel ?? getConfidenceLevel(scan.confidence),
+    imageUri: scan.imageUri,
+    subject: scan.subject,
+    source: scan.source,
+    treatmentSteps: scan.treatmentSteps,
+    recommendation: scan.recommendation,
+    warning: scan.warning,
+    isCocoaLeaf: scan.isCocoaLeaf,
+    modelLabel: scan.modelLabel,
+    classIndex: scan.classIndex,
+    probabilities: scan.probabilities,
     scannedAt: new Date(scan.scannedAt),
   };
 }
